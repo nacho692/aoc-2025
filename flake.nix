@@ -9,7 +9,7 @@
       let pkgs = nixpkgs.legacyPackages.${system};
       in {
         devShells.default = pkgs.mkShell {
-          packages = [ pkgs.erlang pkgs.rebar3 pkgs.erlang-language-platform pkgs.gleam ];
+          packages = [ pkgs.erlang pkgs.rebar3 pkgs.erlang-language-platform pkgs.gleam pkgs.glpk ];
         };
       });
 }

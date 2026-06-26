@@ -1,3 +1,4 @@
+import gleam/bit_array
 import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
@@ -5,6 +6,7 @@ import gleam/option
 import gleam/result
 import gleam/set.{type Set}
 import gleam/string
+import milp.{type Problem}
 import utils
 
 type Lights {
@@ -156,6 +158,130 @@ fn part1() {
   |> result.map(fn(r) { r |> list.flatten |> list.length })
 }
 
+fn parse_problem(line: String) -> Result(Problem, Nil) {
+  use #(_, rest_raw) <- result.try(string.split_once(line, "]"))
+  use #(buttons_raw, joltage_raw) <- result.try(
+    rest_raw |> string.split_once("{"),
+  )
+  use buttons <- result.try(
+    buttons_raw
+    |> string.trim
+    |> string.split(" ")
+    |> list.try_map(fn(buttonset_raw) {
+      buttonset_raw
+      |> string.remove_prefix("(")
+      |> string.remove_suffix(")")
+      |> string.split(",")
+      |> list.try_fold([], fn(acc, button_raw) {
+        case int.parse(button_raw) {
+          Ok(n) -> Ok([n, ..acc])
+          Error(e) -> Error(e)
+        }
+      })
+    }),
+  )
+
+  use target_joltage <- result.try(
+    joltage_raw
+    |> string.trim
+    |> string.remove_prefix("{")
+    |> string.remove_suffix("}")
+    |> string.split(",")
+    |> list.try_map(int.parse),
+  )
+
+  // C_i button i is pressed C_i times, there is a C per button
+  Ok(milp.new(
+    objective: milp.Min(
+      sum: buttons
+      |> list.index_map(fn(_, idx) {
+        #(milp.Variable("c" <> int.to_string(idx)), milp.CInt(1))
+      }),
+    ),
+    constraints: target_joltage
+      |> list.index_map(fn(target, idx) {
+        milp.EQ(
+          sum: {
+            buttons
+            |> list.index_map(fn(x, i) { #(x, i) })
+            |> list.filter(fn(t) {
+              let #(buttonset, _) = t
+              buttonset |> list.contains(idx)
+            })
+            |> list.map(fn(t) {
+              let #(_, button_idx) = t
+              #(milp.Variable("c" <> int.to_string(button_idx)), milp.CInt(1))
+            })
+          },
+          constant: milp.CInt(target),
+        )
+      }),
+    bounds: [],
+    variable_types: buttons
+      |> list.index_map(fn(_, idx) {
+        #(milp.Variable(v: "c" <> int.to_string(idx)), milp.Integer)
+      })
+      |> dict.from_list,
+  ))
+}
+
+@external(erlang, "erlang", "binary_to_list")
+fn to_charlist(s: String) -> List(Int)
+
+@external(erlang, "os", "cmd")
+fn os_cmd(cmd: List(Int)) -> List(Int)
+
+@external(erlang, "file", "write_file")
+fn file_write(path: String, content: String) -> Result(Nil, a)
+
+@external(erlang, "file", "read_file")
+fn file_read(path: String) -> Result(BitArray, a)
+
+fn solve_lp(lp: String) -> Result(Int, String) {
+  let in_path = "/tmp/problem.lp"
+  let out_path = "/tmp/solution.txt"
+  let _ = file_write(in_path, lp)
+  let cmd = "glpsol --lp " <> in_path <> " -w " <> out_path <> " 2>&1"
+  let _ = os_cmd(to_charlist(cmd))
+  file_read(out_path)
+  |> result.try(bit_array.to_string)
+  |> result.replace_error("failed to read solution")
+  |> result.try(fn(output) {
+    parse_objective(output) |> result.replace_error("parsing objective")
+  })
+}
+
+fn parse_objective(output: String) -> Result(Int, Nil) {
+  output
+  |> string.split("\n")
+  |> list.find(fn(line) { string.starts_with(line, "s ") })
+  |> result.try(fn(line) {
+    line
+    |> string.split(" ")
+    |> list.last
+    |> result.try(int.parse)
+  })
+}
+
+fn part2() -> Result(String, String) {
+  use text <- result.try(
+    utils.read_text("src/day10.input") |> result.replace_error("reading input"),
+  )
+  use equations <- result.try(
+    text
+    |> string.trim
+    |> string.split("\n")
+    |> list.map(string.trim)
+    |> list.try_map(parse_problem)
+    |> result.replace_error("parsing problem"),
+  )
+  use solutions <- result.try(
+    equations |> list.map(milp.to_lp) |> list.try_map(solve_lp),
+  )
+  Ok(solutions |> int.sum |> int.to_string)
+}
+
 pub fn main() {
   let _ = echo part1()
+  let _ = echo part2()
 }
