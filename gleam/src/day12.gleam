@@ -1,5 +1,6 @@
 import gleam/bool
 import gleam/dict.{type Dict}
+import gleam/function
 import gleam/int
 import gleam/list
 import gleam/option
@@ -75,13 +76,6 @@ fn solve_acc(
     })
   use <- bool.guard(slots_required > free_slots(p.g, cp), option.None)
 
-  echo "-------------"
-  echo "Position"
-  echo cp
-  echo "Slots Required"
-  echo slots_required
-  echo "Free Slots"
-  echo free_slots(p.g, cp)
   case slots_required {
     0 -> option.Some(acc)
     _ -> {
@@ -109,8 +103,6 @@ fn solve_acc(
           )
 
         use next_position <- result.try(find_free(g, cp))
-        echo "Choice"
-        echo shape.key
         case
           solve_acc(
             Problem(..p, g: g),
@@ -308,8 +300,11 @@ fn part1() -> Result(String, String) {
     Problem(g:, shapes:, demands:)
   })
   |> list.map(solve)
-  |> echo
-  Ok("OK!")
+  |> list.map(option.is_some)
+  |> list.filter(function.identity)
+  |> list.length
+  |> int.to_string
+  |> Ok
 }
 
 pub fn main() {
